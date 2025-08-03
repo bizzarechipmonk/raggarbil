@@ -217,7 +217,7 @@ def main():
         st.session_state.llm = init_chat_model("gpt-4o-mini", model_provider="openai")
 
     if build:
-    loaded_docs = None  # local variable to avoid scoping issues
+        loaded_docs = None  # local variable to avoid scoping issues
 
         if source_mode == "Upload files":
             if not uploaded:
