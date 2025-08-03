@@ -266,7 +266,6 @@ if build:
     if ask:
         if not st.session_state.retriever:
             st.error("Please build the index first (sidebar).")
-            return
 
         retriever = st.session_state.retriever
         prompt = st.session_state.prompt
