@@ -77,6 +77,43 @@ def load_directory(dir_path: Path) -> List[Document]:
             st.warning(f"Skipping {path.name}: {e}")
     return docs
 
+from langchain.schema import Document
+
+def docs_from_uploads(uploaded_files):
+    """
+    Convert Streamlit UploadedFiles into LangChain Documents.
+    Supports .txt, .md, .pdf, .docx.
+    """
+    import io, tempfile
+    from pypdf import PdfReader
+    import docx2txt
+    docs = []
+    for f in uploaded_files:
+        name = f.name
+        ext = Path(name).suffix.lower()
+        data = f.read()
+
+        if ext in {".txt", ".md"}:
+            text = data.decode("utf-8", errors="ignore")
+            docs.append(Document(page_content=text, metadata={"source": name}))
+
+        elif ext == ".pdf":
+            reader = PdfReader(io.BytesIO(data))
+            for i, page in enumerate(reader.pages):
+                text = page.extract_text() or ""
+                docs.append(Document(page_content=text,
+                                    metadata={"source": name, "page": i + 1}))
+
+        elif ext == ".docx":
+            # docx2txt expects a path; write to a temp file briefly
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+                tmp.write(data); tmp.flush()
+                text = docx2txt.process(tmp.name) or ""
+            docs.append(Document(page_content=text, metadata={"source": name}))
+        else:
+            st.warning(f"Unsupported file type: {name}")
+    return docs
+
 def tag_company_metadata(docs: List[Document]) -> None:
     # Attach company name from a line like: "Company: BrightSpan Learning"
     for d in docs:
@@ -143,7 +180,19 @@ def main():
 
     with st.sidebar:
         st.header("⚙️ Settings")
-        docs_dir = st.text_input("Documents folder path", value=str(Path.cwd()))
+        source_mode = st.radio("Data source", ["Folder path", "Upload files"], index=0)
+
+        if source_mode == "Folder path":
+            docs_dir = st.text_input("Documents folder path", value=str(Path.cwd()))
+            uploaded = None
+        else:
+            uploaded = st.file_uploader(
+                "Upload documents (.txt, .md, .pdf, .docx)",
+                type=["txt", "md", "pdf", "docx"],
+                accept_multiple_files=True,
+            )
+            docs_dir = None
+            
         chunk_size = st.slider("Chunk size (chars)", 300, 2000, 800, 50)
         chunk_overlap = st.slider("Chunk overlap (chars)", 0, 400, 120, 10)
         embedding_model_name = st.selectbox("Embedding model", [
@@ -167,38 +216,48 @@ def main():
         st.session_state.prompt = make_prompt()
         st.session_state.llm = init_chat_model("gpt-4o-mini", model_provider="openai")
 
-    if build:
+if build:
+    if source_mode == "Upload files":
+        if not uploaded:
+            st.error("Please upload one or more files.")
+            st.stop()
+        with st.spinner("Reading uploaded files..."):
+            docs = docs_from_uploads(uploaded)
+    else:
         folder = Path(docs_dir)
         if not folder.exists():
             st.error(f"Folder not found: {folder}")
-        else:
-            with st.spinner("Loading documents..."):
-                docs = load_directory(folder)
-                if not docs:
-                    st.warning("No supported files found (.txt, .md, .pdf, .docx).")
-                tag_company_metadata(docs)
+            st.stop()
+        with st.spinner("Loading documents from folder..."):
+            docs = load_directory(folder)
 
-            with st.spinner("Splitting into chunks..."):
-                splits = split_docs(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-                st.info(f"Loaded {len(docs)} docs → {len(splits)} chunks")
+    if not docs:
+        st.warning("No documents found.")
+        st.stop()
 
-            with st.spinner("Building vector store..."):
-                vs = build_vector_store(splits, embedding_model_name)
+    # Tag metadata, split, and build the index (unchanged)
+    tag_company_metadata(docs)
 
-            # Build retriever
-            if search_type == "mmr":
-                retriever = vs.as_retriever(
-                    search_type="mmr",
-                    search_kwargs={"k": k, "fetch_k": fetch_k, "lambda_mult": float(lambda_mult)}
-                )
-            else:
-                retriever = vs.as_retriever(search_type="similarity", search_kwargs={"k": k})
+    with st.spinner("Splitting into chunks..."):
+        splits = split_docs(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        st.info(f"Loaded {len(docs)} docs → {len(splits)} chunks")
 
-            st.session_state.vs = vs
-            st.session_state.retriever = retriever
-            st.session_state.splits = splits
-            st.session_state.docs = docs
-            st.success("Index built. Ask a question below!")
+    with st.spinner("Building vector store..."):
+        vs = build_vector_store(splits, embedding_model_name)
+
+    if search_type == "mmr":
+        retriever = vs.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": k, "fetch_k": fetch_k, "lambda_mult": float(lambda_mult)},
+        )
+    else:
+        retriever = vs.as_retriever(search_type="similarity", search_kwargs={"k": k})
+
+    st.session_state.vs = vs
+    st.session_state.retriever = retriever
+    st.session_state.splits = splits
+    st.session_state.docs = docs
+    st.success("Index built. Ask a question below!")
 
     st.divider()
     question = st.text_input("Ask a question about your documents:", placeholder="e.g., Who is ByteBloom's CEO?")
