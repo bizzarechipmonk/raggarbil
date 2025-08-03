@@ -217,47 +217,52 @@ def main():
         st.session_state.llm = init_chat_model("gpt-4o-mini", model_provider="openai")
 
     if build:
+    loaded_docs = None  # local variable to avoid scoping issues
+
         if source_mode == "Upload files":
             if not uploaded:
                 st.error("Please upload one or more files.")
                 st.stop()
             with st.spinner("Reading uploaded files..."):
-                docs = docs_from_uploads(uploaded)
+                loaded_docs = docs_from_uploads(uploaded)
         else:
             folder = Path(docs_dir)
             if not folder.exists():
                 st.error(f"Folder not found: {folder}")
                 st.stop()
             with st.spinner("Loading documents from folder..."):
-                docs = load_directory(folder)
+                loaded_docs = load_directory(folder)
     
-        if not docs:
+        if not loaded_docs:
             st.warning("No documents found.")
             st.stop()
     
-        # Tag metadata, split, and build the index (unchanged)
-        tag_company_metadata(docs)
+        # Tag, split, index
+        tag_company_metadata(loaded_docs)
+    
+        with st.spinner("Splitting into chunks..."):
+            splits = split_docs(loaded_docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            st.info(f"Loaded {len(loaded_docs)} docs → {len(splits)} chunks")
+    
+        with st.spinner("Building vector store..."):
+            vs = build_vector_store(splits, embedding_model_name)
+    
+        # Build retriever
+        if search_type == "mmr":
+            retriever = vs.as_retriever(
+                search_type="mmr",
+                search_kwargs={"k": k, "fetch_k": fetch_k, "lambda_mult": float(lambda_mult)},
+            )
+        else:
+            retriever = vs.as_retriever(search_type="similarity", search_kwargs={"k": k})
+    
+        # Persist to session_state
+        st.session_state.vs = vs
+        st.session_state.retriever = retriever
+        st.session_state.splits = splits
+        st.session_state.docs = loaded_docs
+        st.success("Index built. Ask a question below!")
 
-    with st.spinner("Splitting into chunks..."):
-        splits = split_docs(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        st.info(f"Loaded {len(docs)} docs → {len(splits)} chunks")
-
-    with st.spinner("Building vector store..."):
-        vs = build_vector_store(splits, embedding_model_name)
-
-    if search_type == "mmr":
-        retriever = vs.as_retriever(
-            search_type="mmr",
-            search_kwargs={"k": k, "fetch_k": fetch_k, "lambda_mult": float(lambda_mult)},
-        )
-    else:
-        retriever = vs.as_retriever(search_type="similarity", search_kwargs={"k": k})
-
-    st.session_state.vs = vs
-    st.session_state.retriever = retriever
-    st.session_state.splits = splits
-    st.session_state.docs = docs
-    st.success("Index built. Ask a question below!")
 
     st.divider()
     question = st.text_input("Ask a question about your documents:", placeholder="e.g., Who is ByteBloom's CEO?")
