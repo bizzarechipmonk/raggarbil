@@ -217,26 +217,26 @@ def main():
         st.session_state.llm = init_chat_model("gpt-4o-mini", model_provider="openai")
 
     if build:
-    if source_mode == "Upload files":
-        if not uploaded:
-            st.error("Please upload one or more files.")
+        if source_mode == "Upload files":
+            if not uploaded:
+                st.error("Please upload one or more files.")
+                st.stop()
+            with st.spinner("Reading uploaded files..."):
+                docs = docs_from_uploads(uploaded)
+        else:
+            folder = Path(docs_dir)
+            if not folder.exists():
+                st.error(f"Folder not found: {folder}")
+                st.stop()
+            with st.spinner("Loading documents from folder..."):
+                docs = load_directory(folder)
+    
+        if not docs:
+            st.warning("No documents found.")
             st.stop()
-        with st.spinner("Reading uploaded files..."):
-            docs = docs_from_uploads(uploaded)
-    else:
-        folder = Path(docs_dir)
-        if not folder.exists():
-            st.error(f"Folder not found: {folder}")
-            st.stop()
-        with st.spinner("Loading documents from folder..."):
-            docs = load_directory(folder)
-
-    if not docs:
-        st.warning("No documents found.")
-        st.stop()
-
-    # Tag metadata, split, and build the index (unchanged)
-    tag_company_metadata(docs)
+    
+        # Tag metadata, split, and build the index (unchanged)
+        tag_company_metadata(docs)
 
     with st.spinner("Splitting into chunks..."):
         splits = split_docs(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
