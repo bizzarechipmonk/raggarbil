@@ -216,7 +216,7 @@ def main():
         st.session_state.prompt = make_prompt()
         st.session_state.llm = init_chat_model("gpt-4o-mini", model_provider="openai")
 
-if build:
+    if build:
     if source_mode == "Upload files":
         if not uploaded:
             st.error("Please upload one or more files.")
@@ -266,6 +266,7 @@ if build:
     if ask:
         if not st.session_state.retriever:
             st.error("Please build the index first (sidebar).")
+            st.stop()
 
         retriever = st.session_state.retriever
         prompt = st.session_state.prompt
