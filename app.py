@@ -173,9 +173,9 @@ def main():
         st.stop()
     
     
-    st.title("🔎 RAG Demo (LangChain + OpenAI)")
+    st.title("🔎 Jacob's RAG Demo (LangChain + OpenAI)")
     st.markdown(
-        "Load a folder of documents, build an index, and ask questions grounded in those docs."
+        "Load some documents, build an index, and ask questions grounded in those docs (.doc, .pdf, and/or .txt) - go nuts with it!"
     )
 
     with st.sidebar:
